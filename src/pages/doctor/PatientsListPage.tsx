@@ -2,12 +2,31 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import type { Patient } from '../../types/patient'
+import { SEVERITIES, type Severity } from '../../types/drug'
+import { downloadCsv } from '../../lib/exportCsv'
+
+interface PrescriptionExportRow {
+  severity: Severity
+  calculated_dosage: number
+  manual_dosage: number | null
+  start_date: string
+  status: 'active' | 'completed'
+  patients: { full_name: string } | null
+  drugs: { name: string } | null
+}
+
+function severityLabel(value: Severity) {
+  return SEVERITIES.find((s) => s.value === value)?.label ?? value
+}
 
 export default function PatientsListPage() {
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [exportingPatients, setExportingPatients] = useState(false)
+  const [exportingPrescriptions, setExportingPrescriptions] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -36,14 +55,77 @@ export default function PatientsListPage() {
     return patients.filter((p) => p.full_name.toLowerCase().includes(q))
   }, [patients, search])
 
+  async function handleExportPatients() {
+    setExportingPatients(true)
+    setExportError(null)
+    const { data, error } = await supabase.from('patients').select('*').order('full_name')
+    setExportingPatients(false)
+
+    if (error) {
+      setExportError(error.message)
+      return
+    }
+
+    downloadCsv(
+      'пациенты.csv',
+      ['ФИО', 'Дата рождения', 'Вес, кг', 'Контакты', 'Создан'],
+      (data ?? []).map((p) => ({
+        'ФИО': p.full_name,
+        'Дата рождения': p.birth_date ?? '',
+        'Вес, кг': p.weight_kg ?? '',
+        'Контакты': p.contact_info ?? '',
+        'Создан': new Date(p.created_at).toLocaleDateString('ru-RU'),
+      })),
+    )
+  }
+
+  async function handleExportPrescriptions() {
+    setExportingPrescriptions(true)
+    setExportError(null)
+    const { data, error } = await supabase
+      .from('prescriptions')
+      .select('severity, calculated_dosage, manual_dosage, start_date, status, patients(full_name), drugs(name)')
+      .order('start_date', { ascending: false })
+    setExportingPrescriptions(false)
+
+    if (error) {
+      setExportError(error.message)
+      return
+    }
+
+    const rows = (data as unknown as PrescriptionExportRow[] | null) ?? []
+    downloadCsv(
+      'назначения.csv',
+      ['Пациент', 'Препарат', 'Степень тяжести', 'Дозировка, мг/сутки', 'Дата начала', 'Статус'],
+      rows.map((pr) => ({
+        'Пациент': pr.patients?.full_name ?? '',
+        'Препарат': pr.drugs?.name ?? '',
+        'Степень тяжести': severityLabel(pr.severity),
+        'Дозировка, мг/сутки': pr.manual_dosage ?? pr.calculated_dosage,
+        'Дата начала': new Date(pr.start_date).toLocaleDateString('ru-RU'),
+        'Статус': pr.status === 'active' ? 'Активно' : 'Завершено',
+      })),
+    )
+  }
+
   return (
     <div>
       <div className="toolbar">
         <h1 style={{ margin: 0 }}>Картотека пациентов</h1>
-        <Link className="btn" to="/doctor/patients/new">
-          + Добавить пациента
-        </Link>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn secondary" onClick={handleExportPatients} disabled={exportingPatients}>
+            {exportingPatients ? 'Экспортируем…' : 'Экспорт пациентов'}
+          </button>
+          <button className="btn secondary" onClick={handleExportPrescriptions} disabled={exportingPrescriptions}>
+            {exportingPrescriptions ? 'Экспортируем…' : 'Экспорт назначений'}
+          </button>
+          <Link className="btn" to="/doctor/patients/new">
+            + Добавить пациента
+          </Link>
+        </div>
       </div>
+
+      {exportError && <p className="error-text">{exportError}</p>}
 
       <input
         className="search-input"
