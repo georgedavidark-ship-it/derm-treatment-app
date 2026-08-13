@@ -1,5 +1,3 @@
-import type { Severity } from './drug'
-
 export const PRESCRIPTION_STATUSES = [
   { value: 'active', label: 'Активно' },
   { value: 'completed', label: 'Завершено' },
@@ -12,8 +10,8 @@ export interface Prescription {
   patient_id: string
   diagnosis_id: string | null
   drug_id: string
+  dosage_scheme_id: string | null
   weight_kg: number
-  severity: Severity
   calculated_dosage: number
   manual_dosage: number | null
   start_date: string

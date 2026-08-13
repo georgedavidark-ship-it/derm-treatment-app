@@ -15,7 +15,6 @@ interface PatientPrescription {
   id: string
   drug_id: string
   drug_name: string
-  severity: string
   calculated_dosage: number
   manual_dosage: number | null
   start_date: string

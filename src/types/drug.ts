@@ -1,26 +1,23 @@
-export const SEVERITIES = [
-  { value: 'mild', label: 'Лёгкая' },
-  { value: 'moderate', label: 'Средняя' },
-  { value: 'severe', label: 'Тяжёлая' },
-] as const
-
-export type Severity = (typeof SEVERITIES)[number]['value']
-
 export interface Drug {
   id: string
   doctor_id: string
   name: string
-  track_cumulative_dose: boolean
-  max_cumulative_dose_mg_per_kg: number | null
   created_at: string
 }
 
-export interface DosageRule {
+export interface DosageScheme {
   id: string
   drug_id: string
-  severity: Severity
-  mg_per_kg_min: number
-  mg_per_kg_max: number
+  name: string
+  mg_per_kg: number
+  created_at: string
+}
+
+export interface CumulativeDoseOption {
+  id: string
+  drug_id: string
+  name: string
+  max_cumulative_dose_mg_per_kg: number
   created_at: string
 }
 

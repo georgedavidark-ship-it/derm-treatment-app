@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReleaseForm } from '../../types/drug'
 
 interface Props {
-  // Расчётная доза считается суточной (мг/сутки) — так задаются dosage_rules
+  // Расчётная доза считается суточной (мг/сутки) — так задаются dosage_schemes
   // для препаратов вроде изотретиноина (мг/кг/сутки).
   doseMgPerDay: number | null
   releaseForms: ReleaseForm[]

@@ -2,21 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import type { Patient } from '../../types/patient'
-import { SEVERITIES, type Severity } from '../../types/drug'
 import { downloadCsv } from '../../lib/exportCsv'
 
 interface PrescriptionExportRow {
-  severity: Severity
   calculated_dosage: number
   manual_dosage: number | null
   start_date: string
   status: 'active' | 'completed'
   patients: { full_name: string } | null
   drugs: { name: string } | null
-}
-
-function severityLabel(value: Severity) {
-  return SEVERITIES.find((s) => s.value === value)?.label ?? value
+  dosage_schemes: { name: string } | null
 }
 
 export default function PatientsListPage() {
@@ -84,7 +79,9 @@ export default function PatientsListPage() {
     setExportError(null)
     const { data, error } = await supabase
       .from('prescriptions')
-      .select('severity, calculated_dosage, manual_dosage, start_date, status, patients(full_name), drugs(name)')
+      .select(
+        'calculated_dosage, manual_dosage, start_date, status, patients(full_name), drugs(name), dosage_schemes(name)',
+      )
       .order('start_date', { ascending: false })
     setExportingPrescriptions(false)
 
@@ -96,11 +93,11 @@ export default function PatientsListPage() {
     const rows = (data as unknown as PrescriptionExportRow[] | null) ?? []
     downloadCsv(
       'назначения.csv',
-      ['Пациент', 'Препарат', 'Степень тяжести', 'Дозировка, мг/сутки', 'Дата начала', 'Статус'],
+      ['Пациент', 'Препарат', 'Схема дозирования', 'Дозировка, мг/сутки', 'Дата начала', 'Статус'],
       rows.map((pr) => ({
         'Пациент': pr.patients?.full_name ?? '',
         'Препарат': pr.drugs?.name ?? '',
-        'Степень тяжести': severityLabel(pr.severity),
+        'Схема дозирования': pr.dosage_schemes?.name ?? '',
         'Дозировка, мг/сутки': pr.manual_dosage ?? pr.calculated_dosage,
         'Дата начала': new Date(pr.start_date).toLocaleDateString('ru-RU'),
         'Статус': pr.status === 'active' ? 'Активно' : 'Завершено',

@@ -1,11 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { calculateCourseDurationWeeks, calculateDosage, midpoint } from '../../lib/dosage'
-import { SEVERITIES, type Drug, type DosageRule, type Severity } from '../../types/drug'
+import { calculateDosage } from '../../lib/dosage'
+import type { CumulativeDoseOption, Drug, DosageScheme } from '../../types/drug'
 import type { Diagnosis } from '../../types/diagnosis'
 import { PRESCRIPTION_STATUSES, type Prescription, type PrescriptionStatus } from '../../types/prescription'
 import PrescriptionWeeksEditor from './PrescriptionWeeksEditor'
-import MgPerKgSlider from './MgPerKgSlider'
+import CumulativeDoseReference from './CumulativeDoseReference'
 
 type DoseMode = 'fixed' | 'titration'
 
@@ -22,7 +22,8 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([])
   const [diagnoses, setDiagnoses] = useState<Diagnosis[]>([])
   const [drugs, setDrugs] = useState<Drug[]>([])
-  const [rules, setRules] = useState<DosageRule[]>([])
+  const [schemes, setSchemes] = useState<DosageScheme[]>([])
+  const [cumulativeOptions, setCumulativeOptions] = useState<CumulativeDoseOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -30,13 +31,11 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
   const [showForm, setShowForm] = useState(false)
   const [diagnosisId, setDiagnosisId] = useState('')
   const [drugId, setDrugId] = useState('')
-  const [severity, setSeverity] = useState<Severity>('mild')
+  const [schemeId, setSchemeId] = useState('')
   const [weight, setWeight] = useState(defaultWeightKg != null ? String(defaultWeightKg) : '')
-  const [mgPerKg, setMgPerKg] = useState<number | null>(null)
   const [manualDosage, setManualDosage] = useState('')
   const [startDate, setStartDate] = useState(todayIso())
   const [durationWeeks, setDurationWeeks] = useState('4')
-  const [durationTouched, setDurationTouched] = useState(false)
   const [doseMode, setDoseMode] = useState<DoseMode>('fixed')
   const [weeklyDoses, setWeeklyDoses] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -49,11 +48,18 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
     if (!drugId && drugs.length > 0) setDrugId(drugs[0].id)
   }, [drugs, drugId])
 
+  useEffect(() => {
+    const schemesForDrug = schemes.filter((s) => s.drug_id === drugId)
+    if (!schemesForDrug.some((s) => s.id === schemeId)) {
+      setSchemeId(schemesForDrug[0]?.id ?? '')
+    }
+  }, [drugId, schemes, schemeId])
+
   async function load() {
     setLoading(true)
     setError(null)
 
-    const [prescriptionsRes, diagnosesRes, drugsRes, rulesRes] = await Promise.all([
+    const [prescriptionsRes, diagnosesRes, drugsRes, schemesRes, cumulativeRes] = await Promise.all([
       supabase
         .from('prescriptions')
         .select('*')
@@ -65,7 +71,8 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
         .eq('patient_id', patientId)
         .order('diagnosed_at', { ascending: false }),
       supabase.from('drugs').select('*').order('name'),
-      supabase.from('dosage_rules').select('*'),
+      supabase.from('dosage_schemes').select('*'),
+      supabase.from('cumulative_dose_options').select('*'),
     ])
 
     if (prescriptionsRes.error) {
@@ -83,8 +90,13 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
       setLoading(false)
       return
     }
-    if (rulesRes.error) {
-      setError(rulesRes.error.message)
+    if (schemesRes.error) {
+      setError(schemesRes.error.message)
+      setLoading(false)
+      return
+    }
+    if (cumulativeRes.error) {
+      setError(cumulativeRes.error.message)
       setLoading(false)
       return
     }
@@ -92,59 +104,41 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
     setPrescriptions(prescriptionsRes.data ?? [])
     setDiagnoses(diagnosesRes.data ?? [])
     setDrugs(drugsRes.data ?? [])
-    setRules(rulesRes.data ?? [])
+    setSchemes(schemesRes.data ?? [])
+    setCumulativeOptions(cumulativeRes.data ?? [])
     setLoading(false)
   }
 
   function resetForm() {
     setDiagnosisId('')
     setDrugId(drugs[0]?.id ?? '')
-    setSeverity('mild')
     setWeight(defaultWeightKg != null ? String(defaultWeightKg) : '')
     setManualDosage('')
     setStartDate(todayIso())
     setDurationWeeks('4')
-    setDurationTouched(false)
     setDoseMode('fixed')
     setWeeklyDoses([])
     setShowForm(false)
   }
 
   const drug = drugs.find((d) => d.id === drugId)
-  const rule = drugId ? rules.find((r) => r.drug_id === drugId && r.severity === severity) : undefined
-
-  useEffect(() => {
-    setMgPerKg(rule ? midpoint(rule.mg_per_kg_min, rule.mg_per_kg_max) : null)
-  }, [rule?.id])
-
-  useEffect(() => {
-    setDurationTouched(false)
-  }, [drugId])
+  const scheme = schemes.find((s) => s.id === schemeId)
 
   const weightNum = Number(weight)
   const weightValid = weight.trim() !== '' && !Number.isNaN(weightNum) && weightNum > 0
   const calculatedDosage =
-    rule && mgPerKg !== null && weightValid ? calculateDosage(weightNum, mgPerKg) : null
+    scheme && weightValid ? calculateDosage(weightNum, scheme.mg_per_kg) : null
   const manualNum = manualDosage.trim() !== '' ? Number(manualDosage) : null
   const manualValid = manualDosage.trim() === '' || (!Number.isNaN(manualNum) && (manualNum as number) > 0)
   const effectiveDosage = manualValid && manualNum !== null ? manualNum : calculatedDosage
-
-  const targetCumulativeDoseMg =
-    drug?.track_cumulative_dose && drug.max_cumulative_dose_mg_per_kg && weightValid
-      ? calculateDosage(weightNum, drug.max_cumulative_dose_mg_per_kg)
-      : null
-  const suggestedDuration =
-    targetCumulativeDoseMg !== null && effectiveDosage !== null && effectiveDosage > 0
-      ? calculateCourseDurationWeeks(targetCumulativeDoseMg, effectiveDosage)
-      : null
 
   const durationNum = Number(durationWeeks)
   const durationValid = Number.isInteger(durationNum) && durationNum > 0
 
   // Фактическая сумма по реально введённой схеме — при титровании считается
-  // по значениям, которые врач ввёл в таблицу по неделям, а не по исходной
-  // равномерной оценке (suggestedDuration). Поле недели хранит суточную дозу
-  // (мг/сутки), поэтому каждую неделю нужно умножать на 7 дней.
+  // по значениям, которые врач ввёл в таблицу по неделям, а не по одной
+  // равномерной дозе. Поле недели хранит суточную дозу (мг/сутки), поэтому
+  // каждую неделю нужно умножать на 7 дней.
   let actualCumulativeDose: number | null = null
   if (doseMode === 'fixed') {
     actualCumulativeDose =
@@ -158,17 +152,6 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
         Math.round(parsedWeeklyDoses.reduce((a, b) => a + b * 7, 0) * 100) / 100
     }
   }
-
-  const cumulativeDiff =
-    targetCumulativeDoseMg !== null && actualCumulativeDose !== null
-      ? Math.round((actualCumulativeDose - targetCumulativeDoseMg) * 100) / 100
-      : null
-
-  useEffect(() => {
-    if (!durationTouched && suggestedDuration !== null) {
-      setDurationWeeks(String(suggestedDuration))
-    }
-  }, [suggestedDuration, durationTouched])
 
   useEffect(() => {
     if (doseMode !== 'titration') return
@@ -191,8 +174,8 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
 
-    if (!drugId || !rule || calculatedDosage === null) {
-      setError('Выберите препарат и укажите вес — для выбранной степени тяжести должно быть задано правило дозирования.')
+    if (!drugId || !scheme || calculatedDosage === null) {
+      setError('Выберите препарат и схему дозирования, укажите вес пациента.')
       return
     }
     if (!manualValid) {
@@ -229,8 +212,8 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
         patient_id: patientId,
         diagnosis_id: diagnosisId || null,
         drug_id: drugId,
+        dosage_scheme_id: schemeId,
         weight_kg: weightNum,
-        severity,
         calculated_dosage: calculatedDosage,
         manual_dosage: manualNum,
         start_date: startDate,
@@ -291,8 +274,9 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
     return drugs.find((d) => d.id === id)?.name ?? '—'
   }
 
-  function severityLabel(s: Severity) {
-    return SEVERITIES.find((x) => x.value === s)?.label ?? s
+  function schemeName(id: string | null) {
+    if (!id) return 'схема не указана'
+    return schemes.find((s) => s.id === id)?.name ?? 'схема удалена'
   }
 
   function statusLabel(s: PrescriptionStatus) {
@@ -314,7 +298,7 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
 
       {drugs.length === 0 && (
         <p className="muted">
-          Сначала добавьте препараты и правила дозирования в справочнике «Препараты».
+          Сначала добавьте препараты и схемы дозирования в справочнике «Препараты».
         </p>
       )}
 
@@ -346,18 +330,16 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
                 ))}
               </select>
             </div>
-            <div className="field" style={{ minWidth: 160 }}>
-              <label htmlFor="pr_severity">Степень тяжести</label>
-              <select
-                id="pr_severity"
-                value={severity}
-                onChange={(e) => setSeverity(e.target.value as Severity)}
-              >
-                {SEVERITIES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
+            <div className="field" style={{ minWidth: 220 }}>
+              <label htmlFor="pr_scheme">Схема дозирования</label>
+              <select id="pr_scheme" value={schemeId} onChange={(e) => setSchemeId(e.target.value)}>
+                {schemes
+                  .filter((s) => s.drug_id === drugId)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.mg_per_kg} мг/кг)
+                    </option>
+                  ))}
               </select>
             </div>
             <div className="field" style={{ minWidth: 120 }}>
@@ -379,25 +361,13 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
             </div>
           </div>
 
-          {!rule && drugId && (
-            <p className="error-text">Для этой степени тяжести правило дозирования не задано.</p>
+          {!scheme && drugId && (
+            <p className="error-text">Для этого препарата не создано ни одной схемы дозирования.</p>
           )}
 
-          {rule && mgPerKg !== null && (
-            <div style={{ marginTop: 12 }}>
-              <MgPerKgSlider
-                id="pr_mg_per_kg"
-                min={rule.mg_per_kg_min}
-                max={rule.mg_per_kg_max}
-                value={mgPerKg}
-                onChange={setMgPerKg}
-              />
-            </div>
-          )}
-
-          {rule && calculatedDosage !== null && (
+          {scheme && calculatedDosage !== null && (
             <p className="muted">
-              Расчётная дозировка: {calculatedDosage} мг/сутки ({weightNum} кг × {mgPerKg} мг/кг)
+              Расчётная дозировка: {calculatedDosage} мг/сутки ({weightNum} кг × {scheme.mg_per_kg} мг/кг)
             </p>
           )}
 
@@ -432,22 +402,23 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
                 step="1"
                 min="1"
                 value={durationWeeks}
-                onChange={(e) => {
-                  setDurationTouched(true)
-                  setDurationWeeks(e.target.value)
-                }}
+                onChange={(e) => setDurationWeeks(e.target.value)}
                 required
               />
             </div>
           </div>
 
-          {suggestedDuration !== null && (
-            <p className="muted">
-              Расчётная длительность при равномерной дозе {effectiveDosage} мг/сутки:{' '}
-              <strong>{suggestedDuration} нед.</strong> (целевая кумулятивная доза{' '}
-              {targetCumulativeDoseMg} мг ÷ {effectiveDosage} мг/сутки ÷ 7, округление вверх)
-              {durationTouched ? ' — вы задали своё значение длительности.' : ''}
-            </p>
+          {drug && (
+            <div style={{ marginTop: 4, marginBottom: 12 }}>
+              <p className="muted" style={{ margin: '0 0 6px' }}>
+                Кумулятивная доза (справочно, для ориентира при выборе длительности):
+              </p>
+              <CumulativeDoseReference
+                options={cumulativeOptions.filter((o) => o.drug_id === drugId)}
+                weightKg={weightValid ? weightNum : null}
+                dailyDoseMg={effectiveDosage}
+              />
+            </div>
           )}
 
           <div className="field">
@@ -502,41 +473,11 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
             </div>
           )}
 
-          {targetCumulativeDoseMg !== null && (
-            <div
-              style={{
-                marginTop: 4,
-                marginBottom: 16,
-                padding: 12,
-                background: 'var(--color-bg)',
-                borderRadius: 8,
-              }}
-            >
-              <p style={{ margin: '2px 0' }}>
-                Целевая кумулятивная доза для пациента: <strong>{targetCumulativeDoseMg} мг</strong>
-              </p>
-              {actualCumulativeDose !== null ? (
-                <>
-                  <p style={{ margin: '6px 0 2px' }}>
-                    Фактическая сумма по введённой схеме ({durationNum} нед.):{' '}
-                    <strong>{actualCumulativeDose} мг</strong>
-                  </p>
-                  {cumulativeDiff !== null && Math.abs(cumulativeDiff) > 0.01 && (
-                    <p className={cumulativeDiff > 0 ? 'error-text' : 'muted'} style={{ margin: '2px 0' }}>
-                      {cumulativeDiff > 0
-                        ? `Превышает целевую кумулятивную дозу на ${Math.round(cumulativeDiff * 100) / 100} мг.`
-                        : `Ниже целевой кумулятивной дозы на ${Math.round(Math.abs(cumulativeDiff) * 100) / 100} мг.`}
-                    </p>
-                  )}
-                </>
-              ) : (
-                doseMode === 'titration' && (
-                  <p className="muted" style={{ margin: '6px 0 2px' }}>
-                    Заполните дозировку каждой недели, чтобы увидеть фактическую сумму.
-                  </p>
-                )
-              )}
-            </div>
+          {actualCumulativeDose !== null && (
+            <p className="muted">
+              Суммарная доза по введённой схеме ({durationNum} нед.): <strong>{actualCumulativeDose} мг</strong>{' '}
+              — сравните со справочными вариантами кумулятивной дозы выше.
+            </p>
           )}
 
           {error && <p className="error-text">{error}</p>}
@@ -571,7 +512,7 @@ export default function PrescriptionsSection({ patientId, defaultWeightKg }: Pro
               <div>
                 <strong>{drugName(p.drug_id)}</strong>{' '}
                 <span className="muted">
-                  · {severityLabel(p.severity)} · {dosage} мг/сутки · с{' '}
+                  · {schemeName(p.dosage_scheme_id)} · {dosage} мг/сутки · с{' '}
                   {new Date(p.start_date).toLocaleDateString('ru-RU')} · {statusLabel(p.status)}
                 </span>
               </div>

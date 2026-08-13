@@ -12,7 +12,3 @@ export function calculateCourseDurationWeeks(
 ): number {
   return Math.ceil(targetCumulativeDoseMg / dailyDoseMg / 7)
 }
-
-export function midpoint(min: number, max: number): number {
-  return Math.round(((min + max) / 2) * 100) / 100
-}
