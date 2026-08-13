@@ -36,6 +36,14 @@ interface PatientSkincareRoutine {
   instructions: string | null
 }
 
+interface PatientNotification {
+  id: string
+  type: 'note' | 'prescription' | 'skincare' | 'photo'
+  text: string
+  is_read: boolean
+  created_at: string
+}
+
 export default function PatientPage() {
   const { token } = useParams<{ token: string }>()
 
@@ -45,6 +53,8 @@ export default function PatientPage() {
   const [prescriptions, setPrescriptions] = useState<PatientPrescription[]>([])
   const [weeks, setWeeks] = useState<PatientPrescriptionWeek[]>([])
   const [skincare, setSkincare] = useState<PatientSkincareRoutine[]>([])
+  const [notifications, setNotifications] = useState<PatientNotification[]>([])
+  const [markingRead, setMarkingRead] = useState(false)
 
   useEffect(() => {
     if (token) load(token)
@@ -72,10 +82,11 @@ export default function PatientPage() {
       return
     }
 
-    const [prescriptionsRes, weeksRes, skincareRes] = await Promise.all([
+    const [prescriptionsRes, weeksRes, skincareRes, notificationsRes] = await Promise.all([
       supabase.rpc('get_patient_prescriptions_by_token', { p_token: tok }),
       supabase.rpc('get_patient_prescription_weeks_by_token', { p_token: tok }),
       supabase.rpc('get_patient_skincare_by_token', { p_token: tok }),
+      supabase.rpc('get_patient_notifications_by_token', { p_token: tok }),
     ])
 
     if (prescriptionsRes.error) {
@@ -93,11 +104,29 @@ export default function PatientPage() {
       setLoading(false)
       return
     }
+    if (notificationsRes.error) {
+      setError(notificationsRes.error.message)
+      setLoading(false)
+      return
+    }
 
     setPrescriptions(prescriptionsRes.data ?? [])
     setWeeks(weeksRes.data ?? [])
     setSkincare(skincareRes.data ?? [])
+    setNotifications(notificationsRes.data ?? [])
     setLoading(false)
+  }
+
+  async function handleMarkNotificationsRead() {
+    if (!token) return
+    setMarkingRead(true)
+    const { error } = await supabase.rpc('mark_patient_notifications_read_by_token', { p_token: token })
+    setMarkingRead(false)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    load(token)
   }
 
   if (loading) {
@@ -148,6 +177,8 @@ export default function PatientPage() {
     currentWeekRow?.dosage ??
     (activePrescription ? activePrescription.manual_dosage ?? activePrescription.calculated_dosage : null)
 
+  const unreadNotificationsCount = notifications.filter((n) => !n.is_read).length
+
   return (
     <div className="page">
       <div className="card" style={{ marginBottom: 16 }}>
@@ -162,6 +193,35 @@ export default function PatientPage() {
           </p>
         )}
       </div>
+
+      {notifications.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="toolbar" style={{ marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>
+              Уведомления
+              {unreadNotificationsCount > 0 && (
+                <span className="muted"> ({unreadNotificationsCount} новых)</span>
+              )}
+            </h2>
+            {unreadNotificationsCount > 0 && (
+              <button className="btn secondary" onClick={handleMarkNotificationsRead} disabled={markingRead}>
+                {markingRead ? 'Отмечаем…' : 'Отметить как прочитанные'}
+              </button>
+            )}
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            {notifications.map((n) => (
+              <li key={n.id} style={{ marginBottom: 8, fontWeight: n.is_read ? 'normal' : 600 }}>
+                {n.text}
+                <span className="muted" style={{ fontWeight: 'normal' }}>
+                  {' '}
+                  — {new Date(n.created_at).toLocaleDateString('ru-RU')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {activePrescription && (
         <div className="card" style={{ marginBottom: 16 }}>
