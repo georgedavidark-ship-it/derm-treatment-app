@@ -6,6 +6,7 @@ import DiagnosesSection from './DiagnosesSection'
 import PrescriptionsSection from './PrescriptionsSection'
 import PatientDosageCalculator from './PatientDosageCalculator'
 import SkincareRoutinesSection from './SkincareRoutinesSection'
+import PatientPhotosSection from './PatientPhotosSection'
 
 export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -131,6 +132,8 @@ export default function PatientDetailPage() {
       <PatientDosageCalculator patientId={patient.id} defaultWeightKg={patient.weight_kg} />
 
       <SkincareRoutinesSection patientId={patient.id} />
+
+      <PatientPhotosSection patientId={patient.id} />
     </div>
   )
 }
