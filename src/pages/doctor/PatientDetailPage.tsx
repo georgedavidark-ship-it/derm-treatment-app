@@ -5,6 +5,7 @@ import type { Patient } from '../../types/patient'
 import DiagnosesSection from './DiagnosesSection'
 import PrescriptionsSection from './PrescriptionsSection'
 import PatientDosageCalculator from './PatientDosageCalculator'
+import SkincareRoutinesSection from './SkincareRoutinesSection'
 
 export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -129,9 +130,7 @@ export default function PatientDetailPage() {
 
       <PatientDosageCalculator patientId={patient.id} defaultWeightKg={patient.weight_kg} />
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <p className="muted">Уход за кожей по неделям появится здесь на следующем шаге MVP.</p>
-      </div>
+      <SkincareRoutinesSection patientId={patient.id} />
     </div>
   )
 }
